@@ -1,1 +1,1 @@
-Assignment instructions, reports, presentations and other docs.
+Assignment instructions, reports and other docs.
