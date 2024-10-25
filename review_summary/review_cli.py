@@ -1,47 +1,110 @@
+import string
+from collections import Counter
+
+import nltk
+import pandas as pd
+from nltk.corpus import stopwords
+from nltk.tokenize import sent_tokenize, word_tokenize
 from rich import print
+
+# Setup NLTK for text processing
+nltk.download("punkt")
+nltk.download("stopwords")
+
+# Load stopwords and define punctuation to remove
+stop_words = set(stopwords.words("english"))
+punctuation = set(string.punctuation)
 
 
 class ReviewSummary:
     def __init__(self, es):
         self.es = es
 
-    def overall_summary(self, index_name, business_name, top_n=10):
-        search_query = {"query": {"term": {"name": business_name}}}
-
-        response = self.es.search(index=index_name, body=search_query, size=top_n)
-        print("\nSearch Results for Business Name:")
-        for hit in response["hits"]["hits"]:
-            print(f"Name: {hit['_source']['name']}, Score: {hit['_score']}")
-
-    def user_summary(self, index_name, user_id):
+    def get_user_reviews_from_es(self, user_id, index_name="review_index"):
+        # Elasticsearch query to find reviews by user_id
         query = {
-            "query": {"term": {"user_id": user_id}},
-            "aggs": {
-                "review_count": {"value_count": {"field": "user_id"}},
-                "unique_businesses": {"terms": {"field": "business_id", "size": 5000}},
-            },
-            "_source": ["business_id"],
-            "size": 0,
+            "size": 10000,  # Specify the size here within the body
+            "query": {"match": {"user_id": user_id}},
         }
 
-        try:
-            response = self.es.search(index=index_name, body=query)
+        # Execute the search query
+        result = self.es.search(
+            index=index_name, body=query
+        )  # Adjust size for more reviews if needed
 
-            review_count = response["aggregations"]["review_count"]["value"]
-            business_ids = [
-                bucket["key"]
-                for bucket in response["aggregations"]["unique_businesses"]["buckets"]
-            ]
+        # Extract hits (reviews)
+        reviews = [hit["_source"] for hit in result["hits"]["hits"]]
 
-        except Exception as e:
-            print(f"Error analyzing user reviews: {e}")
-            raise
+        # Convert to DataFrame
+        if reviews:
+            return pd.DataFrame(reviews)
+        else:
+            return pd.DataFrame()
 
-        print(f"\nSummary of User {user_id}:")
-        print(f"1. Number of Reviews: {review_count}")
-        print(f"2. Business Reviewed: {business_ids[:10]}, Business Bounding Box: ")
-        print("3. Top ten Frequent words: , Top ten Frequent Phrases: ")
-        print("4. Top three Representative Sentences: ")
+    # 1. Number of reviews contributed by the user
+    def num_reviews_contributed(self, user_reviews):
+        count = len(user_reviews)
+        return count
+
+    # 2. Top 10 most frequent words (excluding stopwords)
+    def get_top_words(self, user_reviews, top_n=10):
+        all_reviews = " ".join(user_reviews["text"])
+        tokens = word_tokenize(all_reviews.lower())
+        # Filter out stopwords and punctuation
+        tokens = [word for word in tokens if word.isalpha() and word not in stop_words]
+        word_freq = Counter(tokens).most_common(top_n)
+        return word_freq
+
+    # 3. Top 10 most frequent phrases (bi-grams)
+    def get_top_phrases(self, user_reviews, top_n=10):
+        all_reviews = " ".join(user_reviews["text"])
+        tokens = word_tokenize(all_reviews.lower())
+        # Filter out stopwords and punctuation
+        tokens = [word for word in tokens if word.isalpha() and word not in stop_words]
+        bi_grams = list(nltk.bigrams(tokens))
+        phrase_freq = Counter(bi_grams).most_common(top_n)
+        return phrase_freq
+
+    # 4. Three most representative sentences
+    def get_representative_sentences(self, user_reviews, top_n=3):
+        all_reviews = " ".join(user_reviews["text"])
+        sentences = sent_tokenize(all_reviews)
+
+        # Simple approach: pick the three longest sentences (could be based on sentiment, frequency, etc.)
+        sorted_sentences = sorted(sentences, key=len, reverse=True)[:top_n]
+        return sorted_sentences
+
+    # Main function to generate user review summary
+    def generate_user_review_summary(self, user_id):
+        # Get user-specific reviews
+        user_reviews = self.get_user_reviews_from_es(user_id)
+
+        if user_reviews.empty:
+            print(f"No reviews found for user ID: {user_id}")
+            return
+
+        # 1. Number of reviews contributed
+        num_reviews = self.num_reviews_contributed(user_reviews)
+        print(f"\nThe user, {user_id}, has contributed {num_reviews} reviews.")
+
+        # 2. Top-10 most frequent words
+        top_words = self.get_top_words(user_reviews)
+        print("\nTop 10 most frequent words:")
+        for word, freq in top_words:
+            print(f"Word: {word}, Frequency: {freq}")
+
+        # 3. Top-10 most frequent phrases
+        top_phrases = self.get_top_phrases(user_reviews)
+        print("\nTop 10 most frequent phrases (bi-grams):")
+        for phrase, freq in top_phrases:
+            print(f"Phrase: {' '.join(phrase)}, Frequency: {freq}")
+
+        # 4. Three most representative sentences
+        representative_sentences = self.get_representative_sentences(user_reviews)
+        print("\nThree most representative sentences:")
+        for i, sentence in enumerate(representative_sentences, 1):
+            print(f"{i}: {sentence}")
+            print()
 
 
 def test():
@@ -56,15 +119,13 @@ def test():
             print("Exiting the search tool. Goodbye!")
             break
 
-        if query[0] == "overall":
-            review_summary.overall_summary(index_name, " ".join(query[1:]).strip())
-        elif query[0] == "user":
+        if query[0] == "user":
             if len(query) < 2:
                 print("No user id specified.")
                 continue
             try:
                 user_id = query[1]
-                review_summary.user_summary(index_name, user_id)
+                review_summary.generate_user_review_summary(index_name, user_id)
             except Exception as e:
                 print(e)
         else:
