@@ -2,6 +2,7 @@ import string
 from collections import Counter
 
 import nltk
+import numpy as np
 import pandas as pd
 from nltk.corpus import stopwords
 from nltk.tokenize import sent_tokenize, word_tokenize
@@ -21,32 +22,64 @@ class ReviewSummary:
         self.es = es
 
     def get_user_reviews_from_es(self, user_id, index_name="review_index"):
-        # Elasticsearch query to find reviews by user_id
         query = {
-            "size": 10000,  # Specify the size here within the body
-            "query": {"match": {"user_id": user_id}},
+            "query": {"term": {"user_id": user_id}},
+            "aggs": {
+                "review_count": {"value_count": {"field": "user_id"}},
+                "unique_businesses": {"terms": {"field": "business_id", "size": 5000}},
+            },
+            "_source": ["business_id", "text"],
         }
 
-        # Execute the search query
-        result = self.es.search(
-            index=index_name, body=query
-        )  # Adjust size for more reviews if needed
+        try:
+            response = self.es.search(index=index_name, body=query)
+
+            review_count = response["aggregations"]["review_count"]["value"]
+            business_ids = [
+                bucket["key"]
+                for bucket in response["aggregations"]["unique_businesses"]["buckets"]
+            ]
+
+        except Exception as e:
+            print(f"Error analyzing user reviews: {e}")
+            raise
 
         # Extract hits (reviews)
-        reviews = [hit["_source"] for hit in result["hits"]["hits"]]
+        reviews = [hit["_source"] for hit in response["hits"]["hits"]]
 
         # Convert to DataFrame
         if reviews:
-            return pd.DataFrame(reviews)
+            return pd.DataFrame(reviews), review_count, business_ids
         else:
-            return pd.DataFrame()
+            return pd.DataFrame(), None, None
 
-    # 1. Number of reviews contributed by the user
-    def num_reviews_contributed(self, user_reviews):
-        count = len(user_reviews)
-        return count
+    def bounding_box(self, X, Y, r=10, R=6.4):
+        C = 2 * np.pi * R
 
-    # 2. Top 10 most frequent words (excluding stopwords)
+        dY = r * C / 360
+        dX = dY * np.cos(np.radians(Y))
+
+        Xmin, Ymin = X - dX, Y - dY
+        Xmax, Ymax = X + dX, Y + dY
+        return (Xmin, Ymin, Xmax, Ymax)
+
+    def get_bounding_box(self, business_ids, index_name="business_data"):
+
+        response = self.es.search(
+            index=index_name,
+            query={
+                "bool": {
+                    "should": [
+                        {"match": {"business_id": value}} for value in business_ids
+                    ]
+                }
+            },
+            size=10000,
+        )
+
+        return response
+
+    # 3. Top 10 most frequent words (excluding stopwords)
     def get_top_words(self, user_reviews, top_n=10):
         all_reviews = " ".join(user_reviews["text"])
         tokens = word_tokenize(all_reviews.lower())
@@ -55,7 +88,7 @@ class ReviewSummary:
         word_freq = Counter(tokens).most_common(top_n)
         return word_freq
 
-    # 3. Top 10 most frequent phrases (bi-grams)
+    # 4. Top 10 most frequent phrases (bi-grams)
     def get_top_phrases(self, user_reviews, top_n=10):
         all_reviews = " ".join(user_reviews["text"])
         tokens = word_tokenize(all_reviews.lower())
@@ -65,7 +98,7 @@ class ReviewSummary:
         phrase_freq = Counter(bi_grams).most_common(top_n)
         return phrase_freq
 
-    # 4. Three most representative sentences
+    # 5. Three most representative sentences
     def get_representative_sentences(self, user_reviews, top_n=3):
         all_reviews = " ".join(user_reviews["text"])
         sentences = sent_tokenize(all_reviews)
@@ -77,29 +110,43 @@ class ReviewSummary:
     # Main function to generate user review summary
     def generate_user_review_summary(self, user_id):
         # Get user-specific reviews
-        user_reviews = self.get_user_reviews_from_es(user_id)
+        user_reviews, review_count, business_ids = self.get_user_reviews_from_es(
+            user_id
+        )
 
         if user_reviews.empty:
             print(f"No reviews found for user ID: {user_id}")
             return
 
         # 1. Number of reviews contributed
-        num_reviews = self.num_reviews_contributed(user_reviews)
-        print(f"\nThe user, {user_id}, has contributed {num_reviews} reviews.")
+        business_ids_10 = " ".join(business_ids[:10])
+        print(
+            f"\nThe user, {user_id}, has contributed {review_count} reviews. 10 businesses reviewed are, {business_ids_10}"
+        )
 
-        # 2. Top-10 most frequent words
+        # 2. Bounding Box:
+        print(f"\nThe Bounding boxes of Business {business_ids_10} are: ")
+        bounding_boxes = self.get_bounding_box(business_ids)
+        for hit in bounding_boxes["hits"]["hits"][:10]:
+            print(
+                self.bounding_box(
+                    hit["_source"]["longitude"], hit["_source"]["latitude"]
+                )
+            )
+
+        # 3. Top-10 most frequent words
         top_words = self.get_top_words(user_reviews)
         print("\nTop 10 most frequent words:")
         for word, freq in top_words:
             print(f"Word: {word}, Frequency: {freq}")
 
-        # 3. Top-10 most frequent phrases
+        # 4. Top-10 most frequent phrases
         top_phrases = self.get_top_phrases(user_reviews)
         print("\nTop 10 most frequent phrases (bi-grams):")
         for phrase, freq in top_phrases:
             print(f"Phrase: {' '.join(phrase)}, Frequency: {freq}")
 
-        # 4. Three most representative sentences
+        # 5. Three most representative sentences
         representative_sentences = self.get_representative_sentences(user_reviews)
         print("\nThree most representative sentences:")
         for i, sentence in enumerate(representative_sentences, 1):
