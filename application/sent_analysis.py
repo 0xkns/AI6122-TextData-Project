@@ -2,7 +2,14 @@ from elasticsearch import Elasticsearch
 from transformers import pipeline
 from dotenv import load_dotenv, find_dotenv
 import os
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
+import nltk
+from nltk.corpus import stopwords
+import re
+from collections import Counter
 
+nltk.download('stopwords')
 load_dotenv(find_dotenv())
 
 es = Elasticsearch(
@@ -11,6 +18,31 @@ es = Elasticsearch(
 )
 
 sentiment_analyzer = pipeline("sentiment-analysis", model="distilbert-base-uncased-finetuned-sst-2-english", batch_size=16)
+
+nltk_stopwords = set(stopwords.words('english'))
+
+def clean_and_tokenize(text):
+    words = re.findall(r'\b\w+\b', text.lower())
+    return [word for word in words if word not in nltk_stopwords]
+
+
+def generate_word_frequency(reviews):
+    all_words = []
+    for review in reviews:
+        tokens = clean_and_tokenize(review)
+        all_words.extend(tokens)
+    
+    word_count = Counter(all_words)
+    return word_count
+
+def generate_visual_word_cloud(word_count):
+    wordcloud = WordCloud(width=800, height=400, background_color='white').generate_from_frequencies(word_count)
+    
+    plt.figure(figsize=(10, 5))
+    plt.imshow(wordcloud, interpolation='bilinear')
+    plt.axis('off')  # Turn off axis labels
+    plt.title('Word Cloud for Reviews')
+    plt.show()
 
 def get_business_id(business_name):
     query = {
@@ -21,7 +53,6 @@ def get_business_id(business_name):
         }
     }
     result = es.search(index="business_data", body=query)
-    # Retrieve the top matched business
     if result['hits']['total']['value'] > 0:
         business = result['hits']['hits'][0]['_source']
         return business['business_id'], business['name']
@@ -68,6 +99,12 @@ def process_business_reviews(business_name):
     if not reviews:
         print(f"No reviews found for business: {business_display_name}")
         return
+    
+    word_count = generate_word_frequency(reviews)
+    
+    # Display visual word cloud
+    print("\nGenerating Visual Word Cloud...")
+    generate_visual_word_cloud(word_count)
     
     top_positive, top_negative = classify_reviews_batch(reviews)
     
