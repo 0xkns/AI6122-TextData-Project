@@ -1,4 +1,6 @@
+venv
 .env
+api.txt
 .ipynb_checkpoints
 
 data/
