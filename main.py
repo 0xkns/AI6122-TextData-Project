@@ -7,6 +7,7 @@ from rich import print
 from rich.console import Console
 from rich.markdown import Markdown
 
+from application import sent_analysis
 from review_summary import review_cli
 from search_engine import cli
 
@@ -20,7 +21,8 @@ instructions = """
 ## Instructions
 1. For the search engine, type "search"
 2. For the review summary type "review"
-3. To exit, type "exit".
+3. For application type "app"
+4. To exit, type "exit".
 """
 
 markdown = Markdown(instructions)
@@ -99,15 +101,24 @@ def business(es):
             print("Invalid search type. Please enter 'name', 'geo', or 'exit'.")
 
 
+def app(es):
+    sent_app = sent_analysis.Application(es)
+    sent_app.instructions()
+
+    while True:
+        query = input("BUSINESS PERFORMANCE ANALYSIS: ").strip().lower()
+        sent_app.process_business_reviews(query)
+
+
 def main():
     es = setup()
 
     while True:
-        query = input("QUERY: ").strip().split()
+        query = input("QUERY: ").strip().lower().split()
 
         if len(query) > 1:
             print(
-                "Invalid search type. Please enter either one of 'search', 'review' or 'exit'."
+                "Invalid search type. Please enter either one of 'search', 'review', 'app' or 'exit'."
             )
 
         if query[0] == "exit":
@@ -119,6 +130,9 @@ def main():
             print()
         elif query[0] == "search":
             business(es)
+            print()
+        elif query[0] == "app":
+            app(es)
             print()
         else:
             print(
