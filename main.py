@@ -8,6 +8,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 
 from review_summary import review_cli
+from search_engine import cli
 
 warnings.filterwarnings("ignore")
 load_dotenv(find_dotenv())
@@ -16,13 +17,10 @@ console = Console()
 instructions = """
 # Yelp search tool for businesses and reviews
 
-## Search Types
-1. 
-2. **User Review Summary**: Look at how people have written reviews with a summary for each user.
-
 ## Instructions
-1. For viewing the review summary of a particular user input a valid user ID of form "user id".
-2. To exit, type "exit".
+1. For the search engine, type "search"
+2. For the review summary type "review"
+3. To exit, type "exit".
 """
 
 markdown = Markdown(instructions)
@@ -42,9 +40,10 @@ def setup():
 
 def review(es):
     review_summary = review_cli.ReviewSummary(es)
+    review_summary.instructions()
 
     while True:
-        query = input("query: ").strip().split(" ")
+        query = input("REVIEW SUMMARY: ").strip().split(" ")
         query[0] = query[0].lower()
 
         if query[0] == "exit":
@@ -65,20 +64,66 @@ def review(es):
                 "Invalid search type. Please enter 'overall', 'user <id>', or 'exit'."
             )
 
-        print("\n")
-
 
 def business(es):
-    pass
+    search_engine = cli.SearchEngine(es)
+    search_engine.instructions()
+    while True:
+        query = input("SEARCH: ").strip().lower()
+        query = query.split(" ")
+        if query[0] == "exit":
+            print("Exiting the search tool. Goodbye!")
+            break
+        elif query[0] != "geo":
+            search_engine.search(" ".join(query).strip())
+        elif query[0] == "geo":
+            if len(query) < 5:
+                print("geo query passed with few params :(")
+                continue
+
+            for q in query[1:]:
+                try:
+                    _ = float(q)
+                except Exception:
+                    print("lat lon values are not real valued numbers :(")
+                    continue
+
+            query[1:] = [float(q) for q in query[1:]]
+            try:
+                top_left = {"lat": query[1], "lon": query[2]}
+                bottom_right = {"lat": query[3], "lon": query[4]}
+                search_engine.search_business_by_location(top_left, bottom_right)
+            except Exception as e:
+                print(e)
+        else:
+            print("Invalid search type. Please enter 'name', 'geo', or 'exit'.")
 
 
 def main():
     es = setup()
 
-    if True:
-        review(es)
-    else:
-        business(es)
+    while True:
+        query = input("QUERY: ").strip().split()
+
+        if len(query) > 1:
+            print(
+                "Invalid search type. Please enter either one of 'search', 'review' or 'exit'."
+            )
+
+        if query[0] == "exit":
+            print("Exiting the search tool. Goodbye!")
+            break
+
+        if query[0] == "review":
+            review(es)
+            print()
+        elif query[0] == "search":
+            business(es)
+            print()
+        else:
+            print(
+                "Invalid search type. Please enter either one of 'search', 'review' or 'exit'."
+            )
 
 
 if __name__ == "__main__":
