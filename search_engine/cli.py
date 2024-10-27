@@ -25,7 +25,7 @@ instructions = """
 2. **Geospatial Search**: Find businesses within a geographical bounding box based on latitude and longitude.
 
 ## Instructions
-1. For searching a business or a review you can just key in the phrase"
+1. For searching a business or a review you can just key in the phrase
 2. For searching businesses within a geospatial bounding box use a command of the following form "geo <top_lat> <top_lan> <bottom_lat> <bottom_lan>"
 """
 
@@ -79,40 +79,66 @@ def search(phrase):
         
         # Use a table for better formatting
         table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("Rank", width=10)
+        table.add_column("ID", width=20)
         table.add_column("Business Name", width=30)
-        table.add_column("Address", width=50)
+        table.add_column("Address", width=40)
+        table.add_column("Score", width=20)
         
-        for hit in response['hits']['hits']:
-            table.add_row(hit['_source']['name'], hit['_source']['address'])
+        for i, hit in enumerate(response['hits']['hits']):
+            table.add_row(
+                str(i+1),
+                hit['_id'],
+                hit['_source']['name'], 
+                hit['_source']['address'],
+                str(hit['_score'])
+                )
         console.print(table)
     else:
         reviews = search_reviews(phrase)
         business = search_business(phrase)
         
-        reviews = sorted([(hit['_source'], hit['_score']) for hit in reviews['hits']['hits']], key=lambda l: -l[1])[:5]
-        business = sorted([(hit['_source'], hit['_score']) for hit in business['hits']['hits']], key=lambda l: -l[1])[:5]
-        
+        reviews = sorted(reviews['hits']['hits'], key=lambda l:l['_score'], reverse=True)
+        business = sorted(business['hits']['hits'], key=lambda l:l['_score'], reverse=True)
+      
         console.print(Markdown("### Top business results\n"))
         
         # Business results table
-        table = Table(show_header=True, header_style="bold cyan")
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("Rank", width=10)
+        table.add_column("ID", width=20)
         table.add_column("Business Name", width=30)
-        table.add_column("Address", width=50)
-        for source, _ in business:
-            table.add_row(source['name'], source['address'])
+        table.add_column("Address", width=40)
+        table.add_column("Score", width=20)
+        for i, hit in enumerate(business):
+            table.add_row(
+                str(i+1),
+                hit['_id'],
+                hit['_source']['name'], 
+                hit['_source']['address'],
+                str(hit['_score'])
+                )
         console.print(table)
         
         console.print(Markdown("\n### Top review results\n"))
         
         # Review results table
         review_table = Table(show_header=True, header_style="bold green")
+        review_table.add_column("Rank", width=10)
+        review_table.add_column("ID", width=20)
         review_table.add_column("Business Name", width=30)
         review_table.add_column("Review", width=70)
-        for source, _ in reviews:
-            business_name = es.get(index=business_index, id=source['business_id'])['_source']['name']
-            review_table.add_row(business_name, source['text'])
+        review_table.add_column("Score", width=20)
+        for i, hit in enumerate(reviews):
+            business_name = es.get(index=business_index, id=hit['_source']['business_id'])['_source']['name']
+            review_table.add_row(
+                str(i+1),
+                hit['_id'],
+                business_name,
+                hit['_source']['text'],
+                str(hit['_score'])
+            )
         console.print(review_table)
-
 
 
 def search_business_by_location(index_name, top_left, bottom_right, top_n=10):
