@@ -107,6 +107,11 @@ def app(es):
 
     while True:
         query = input("BUSINESS PERFORMANCE ANALYSIS: ").strip().lower()
+
+        if query == "exit":
+            print("Exiting the search tool. Goodbye!")
+            break
+
         sent_app.process_business_reviews(query)
 
 
